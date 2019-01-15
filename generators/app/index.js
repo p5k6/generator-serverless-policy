@@ -89,7 +89,9 @@ const buildPolicy = (serviceName, stage, region) => {
       {
         Effect: 'Allow',
         Action: ['iam:PassRole'],
-        Resource: ['arn:aws:iam::*:role/*']
+        Resource: [
+          `arn:aws:iam::*:role/${serviceName}-${stage}-${region}-lambdaRole`
+        ]
       },
       {
         Effect: 'Allow',
