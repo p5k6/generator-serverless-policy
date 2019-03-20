@@ -93,13 +93,7 @@ const buildPolicy = (serviceName, stage, region) => {
           `arn:aws:iam::*:role/${serviceName}-${stage}-${region}-lambdaRole`
         ]
       },
-      {
-        Effect: 'Allow',
-        Action: 'kinesis:*',
-        Resource: [
-          `arn:aws:kinesis:*:*:stream/${serviceName}-${stage}-${region}`
-        ]
-      },
+
       {
         Effect: 'Allow',
         Action: [
@@ -108,15 +102,10 @@ const buildPolicy = (serviceName, stage, region) => {
           'iam:PutRolePolicy',
           'iam:DeleteRolePolicy',
           'iam:DeleteRole'
-      ],
+        ],
         Resource: [
           `arn:aws:iam::*:role/${serviceName}-${stage}-${region}-lambdaRole`
         ]
-      },
-      {
-        Effect: 'Allow',
-        Action: 'sqs:*',
-        Resource: [`arn:aws:sqs:*:*:${serviceName}-${stage}-${region}`]
       },
       {
         Effect: 'Allow',
@@ -211,6 +200,21 @@ module.exports = class extends Generator {
       },
       {
         type: 'confirm',
+        name: 'kinesis',
+        message: 'Does your service rely on kinesis?'
+      },
+      {
+        type: 'confirm',
+        name: 'apigateway',
+        message: 'Does your service rely on API Gateway?'
+      },
+      {
+        type: 'confirm',
+        name: 'sqs',
+        message: 'Does your service rely on SQS?'
+      },
+      {
+        type: 'confirm',
         name: 's3',
         message: 'Is your service going to be using S3 buckets?'
       }
@@ -235,6 +239,35 @@ module.exports = class extends Generator {
         Effect: 'Allow',
         Action: ['dynamodb:*'],
         Resource: ['arn:aws:dynamodb:*:*:table/*']
+      });
+    }
+
+    if (this.slsSettings.kinesis) {
+      policy.Statement.push({
+        Effect: 'Allow',
+        Action: ['kinesis:*'],
+        Resource: ['arn:aws:kinesis:*:*:stream/${serviceName}-${stage}-${region}']
+      });
+    }
+
+    if (this.slsSettings.sqs) {
+      policy.Statement.push({
+        Effect: 'Allow',
+        Action: ['sqs:*'],
+        Resource: ['arn:aws:sqs:*:*:${serviceName}-${stage}-${region}']
+      });
+    }
+
+    if (this.slsSettings.apigateway) {
+      policy.Statement.push({
+        Effect: 'Allow',
+        Action: [
+          'apigateway:GET',
+          'apigateway:POST',
+          'apigateway:PUT',
+          'apigateway:DELETE'
+        ],
+        Resource: ['arn:aws:apigateway:*::/restapis*']
       });
     }
 
