@@ -2,7 +2,7 @@
 const fs = require('fs');
 const Generator = require('yeoman-generator');
 
-const buildPolicy = (serviceName, stage, region) => {
+const buildPolicy = (serviceName, stage, region, aws_account_id) => {
   return {
     Version: '2012-10-17',
     Statement: [
@@ -30,7 +30,7 @@ const buildPolicy = (serviceName, stage, region) => {
           "cloudformation:UpdateStack"
         ],
         Resource: [
-          `arn:aws:cloudformation:${region}:*:stack/${serviceName}-${stage}/*`
+          `arn:aws:cloudformation:${region}:${aws_account_id}:stack/${serviceName}-${stage}/*`
         ]
       },
       {
@@ -69,7 +69,7 @@ const buildPolicy = (serviceName, stage, region) => {
           'lambda:Update*'
         ],
         Resource: [
-          `arn:aws:lambda:${region}:*:function:${serviceName}-${stage}-*`
+          `arn:aws:lambda:${region}:${aws_account_id}:function:${serviceName}-${stage}-*`
         ]
       },
       
@@ -85,9 +85,13 @@ const buildPolicy = (serviceName, stage, region) => {
         Effect: 'Allow',
         Action: [
           'iam:GetRole',
+          'iam:GetRolePolicy',
+          'iam:GetPolicy',
           'iam:CreateRole',
           'iam:PutRolePolicy',
           'iam:DeleteRolePolicy',
+          'iam:DetachRolePolicy',
+          'iam:AttachRolePolicy',
           'iam:DeleteRole'
         ],
         Resource: [
@@ -105,12 +109,12 @@ const buildPolicy = (serviceName, stage, region) => {
           'logs:CreateLogStream',
           'logs:DeleteLogGroup'
         ],
-        Resource: [`arn:aws:logs:${region}:*:*`],
+        Resource: [`arn:aws:logs:${region}:${aws_account_id}:*`],
         Effect: 'Allow'
       },
       {
         Action: ['logs:PutLogEvents'],
-        Resource: [`arn:aws:logs:${region}:*:*`],
+        Resource: [`arn:aws:logs:${region}:${aws_account_id}:*`],
         Effect: 'Allow'
       },
       {
@@ -153,6 +157,16 @@ module.exports = class extends Generator {
       type: String,
       default: '*'
     });
+    this.option('kms_key', {
+      description: 'The name of a single KMS key to grant encrypt/decrypt access to',
+      type: String,
+      default: ''
+    });
+    this.option('aws_account_id', {
+      description: 'The AWS Account ID this role has access to',
+      type: String,
+      default: '*'
+    });
   }
 
   prompting() {
@@ -173,6 +187,18 @@ module.exports = class extends Generator {
         type: 'input',
         name: 'region',
         message: 'You can specify a specific region, if you like:',
+        default: '*'
+      },
+      {
+        type: 'input',
+        name: 'kms_key',
+        message: 'You can specify a single KMS key to grant encrypt/decrypt access to',
+        default: ''
+      },
+      {
+        type: 'input',
+        name: 'aws_account_id',
+        message: 'You can specify which aws account id to restrict access to',
         default: '*'
       },
       {
@@ -199,12 +225,19 @@ module.exports = class extends Generator {
         type: 'confirm',
         name: 's3',
         message: 'Is your service going to be using S3 buckets?'
+      },
+      {
+        type: 'confirm',
+        name: 'run_vpc',
+        message: 'Will your function run inside a VPC?'
       }
     ]).then(answers => {
       this.slsSettings = answers;
       this.log('app name', answers.name);
       this.log('app stage', answers.stage);
       this.log('app region', answers.region);
+      this.log('KMS key', answers.kms_key);
+      this.log('AWS Account Id', answers.aws_account_id);
     });
   }
 
@@ -214,8 +247,11 @@ module.exports = class extends Generator {
     const project = this.slsSettings.name;
     const stage = this.slsSettings.stage;
     const region = this.slsSettings.region;
+    const aws_account_id = this.slsSettings.aws_account_id;
+    const kms_key = this.slsSettings.kms_key;
 
-    const policy = buildPolicy(project, stage, region);
+    const policy = buildPolicy(project, stage, region, aws_account_id);
+
     if (this.slsSettings.dynamodb) {
       policy.Statement.push({
         Effect: 'Allow',
@@ -224,11 +260,34 @@ module.exports = class extends Generator {
       });
     }
 
+    if (this.slsSettings.kms_key) {
+      policy.Statement.push({
+        Effect: 'Allow',
+        Action: [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:DescribeKey",
+          "kms:ReEncrypt*"
+        ],
+        Resource: [
+            `arn:aws:kms:${region}:${aws_account_id}:key/${kms_key}`
+        ]
+      });
+      policy.Statement.push({
+        Effect: 'Allow',
+        Action: [
+           'kms:ListKeys',
+           'kms:ListAliases'
+        ],
+        Resource: ['*']
+      });
+    }
+
     if (this.slsSettings.kinesis) {
       policy.Statement.push({
         Effect: 'Allow',
         Action: ['kinesis:*'],
-        Resource: ['arn:aws:kinesis:*:*:stream/${serviceName}-${stage}-${region}']
+        Resource: [`arn:aws:kinesis:*:*:stream/${serviceName}-${stage}-${region}`]
       });
     }
 
@@ -236,7 +295,20 @@ module.exports = class extends Generator {
       policy.Statement.push({
         Effect: 'Allow',
         Action: ['sqs:*'],
-        Resource: ['arn:aws:sqs:*:*:${serviceName}-${stage}-${region}']
+        Resource: [`arn:aws:sqs:*:*:${serviceName}-${stage}-${region}`]
+      });
+    }
+
+    if (this.slsSettings.run_vpc) {
+      policy.Statement.push({
+        Effect: 'Allow',
+        Action: [
+          "iam:GetRole",
+          "iam:GetRolePolicy",
+          "iam:GetPolicy",
+          "iam:GetPolicyVersion"
+        ],
+        Resource: [`arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole`]
       });
     }
 
